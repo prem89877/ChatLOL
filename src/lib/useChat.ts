@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { isAbortError, requestChatReply } from "./chatApi";
+import {
+  SAVE_FAILED_MESSAGE,
+  loadConversations,
+  newId,
+  saveConversations,
+} from "./historyStore";
 import type { Conversation, Message } from "./types";
-
-const STORE_KEY = "chatlol:conversations";
 
 type ChatError = { conversationId: string; message: string };
 
@@ -15,26 +19,26 @@ export function useChat() {
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<ChatError | null>(null);
   const [draft, setDraft] = useState(""); // assistant text while it streams in
+  const [storageError, setStorageError] = useState<string | null>(null);
 
   // Refs guard against double submits and hold the cancel handle.
   const busyRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const draftRef = useRef("");
 
-  // Load / save conversations (this device only)
+  // Load / save conversations (this device only). A storage failure never breaks the chat.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORE_KEY);
-      if (raw) setConversations(JSON.parse(raw) as Conversation[]);
-    } catch {}
+    const result = loadConversations();
+    setConversations(result.conversations);
+    setStorageError(result.error);
     setLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!loaded) return;
-    try {
-      localStorage.setItem(STORE_KEY, JSON.stringify(conversations));
-    } catch {}
+    const failed = saveConversations(conversations);
+    if (failed) setStorageError(failed);
+    else setStorageError((cur) => (cur === SAVE_FAILED_MESSAGE ? null : cur));
   }, [conversations, loaded]);
 
   // Cancel any request when the page unmounts
@@ -52,7 +56,7 @@ export function useChat() {
     setLoadingId(conversationId);
 
     const addAssistantMessage = (text: string) => {
-      const message: Message = { id: `a-${Date.now()}`, role: "assistant", text };
+      const message: Message = { id: newId("a"), role: "assistant", text };
       setConversations((prev) =>
         prev.map((c) =>
           c.id === conversationId
@@ -96,7 +100,7 @@ export function useChat() {
       if (!trimmed || busyRef.current) return false;
 
       const now = Date.now();
-      const userMessage: Message = { id: `u-${now}`, role: "user", text: trimmed };
+      const userMessage: Message = { id: newId("u"), role: "user", text: trimmed };
       const existing = conversations.find((c) => c.id === activeId);
 
       if (existing) {
@@ -108,7 +112,7 @@ export function useChat() {
         );
         void requestReply(existing.id, history);
       } else {
-        const id = `c-${now}`;
+        const id = newId("c");
         const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
         setConversations((prev) => [{ id, title, messages: [userMessage], updatedAt: now }, ...prev]);
         setActiveId(id);
@@ -150,9 +154,16 @@ export function useChat() {
   }, []);
 
   const active = conversations.find((c) => c.id === activeId) ?? null;
+  // Most recent conversation first
+  const sorted = useMemo(
+    () => [...conversations].sort((a, b) => b.updatedAt - a.updatedAt),
+    [conversations],
+  );
 
   return {
-    conversations,
+    conversations: sorted,
+    storageError,
+    dismissStorageError: () => setStorageError(null),
     active,
     activeId,
     busy: loadingId !== null,

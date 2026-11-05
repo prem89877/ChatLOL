@@ -49,9 +49,31 @@ Add the same three variables in Project Settings > Environment Variables, then r
 - `npm run start` – run production build
 - `npm run typecheck` – TypeScript check
 
+## Conversation history
+
+**What works now (no Supabase needed):** conversations are saved in your browser's localStorage, on this device only.
+
+- A conversation is created when you send your first message; its title is that message.
+- The assistant's reply is saved when it finishes (or the text received so far if you press Stop).
+- Reload the page and your chats are still in the sidebar, newest first. Click one to open it.
+- Delete asks for confirmation. "Clear all conversations" is in Settings.
+- If storage is full, blocked or damaged, a message appears and the chat keeps working. Damaged data is backed up in the browser, not overwritten.
+- Limits: history is not shared between browsers or devices, clearing browser data deletes it, and two tabs open at once can overwrite each other.
+
+**Why not Supabase yet:** there is no login, so the app cannot tell visitors apart. Saving chats in Supabase without a user identity would mean public tables, or a server key that can read everyone's chats. Neither is safe, so Row Level Security is not weakened.
+
+**What Supabase persistence needs later**
+
+1. Add authentication (for example Supabase Auth) so every chat belongs to a signed-in user.
+2. Create a NEW Supabase project for chatLOL. Never use the Blisscco project.
+3. Apply `supabase/migrations/20261105000000_chat_history.sql` (SQL Editor, or `supabase db push` with the Supabase CLI). It creates `conversations` and `messages` with Row Level Security and policies for signed-in owners only, none for anonymous users. It has not been applied or tested yet.
+4. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (see `.env.example`) and install `@supabase/supabase-js`.
+5. Replace the localStorage functions in `src/lib/historyStore.ts` with Supabase calls made as the signed-in user. In the database, `messages.content` matches `text` in the app, and ids are UUIDs.
+6. Never use the `service_role` key in browser code.
+
 ## Notes and limits
 
 - Replies stream in as they are generated. If a provider does not support streaming, the full reply appears at once.
 - Server limits: 12,000 characters per message, the latest 40 messages (max 60,000 characters) are sent as context, 20 requests per minute per IP.
 - The rate limit is in memory and best-effort (it resets when the server restarts and is per server instance on serverless hosting).
-- Conversations are stored in your browser (localStorage) only. No database, authentication or payments.
+- No authentication or payments.

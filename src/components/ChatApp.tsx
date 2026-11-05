@@ -39,7 +39,10 @@ export default function ChatApp() {
           chat.select(id);
           setSidebarOpen(false);
         }}
-        onDelete={chat.remove}
+        onDelete={(id) => {
+          const title = chat.conversations.find((c) => c.id === id)?.title ?? "this conversation";
+          if (window.confirm(`Delete "${title}"? This cannot be undone.`)) chat.remove(id);
+        }}
         onOpenSettings={() => {
           setSidebarOpen(false);
           setSettingsOpen(true);
@@ -68,6 +71,18 @@ export default function ChatApp() {
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
         </header>
+
+        {chat.storageError && (
+          <div
+            role="alert"
+            className="mx-3 mb-1 flex items-start justify-between gap-3 rounded-xl border border-line bg-panel px-3 py-2 text-sm"
+          >
+            <span>{chat.storageError}</span>
+            <button type="button" onClick={chat.dismissStorageError} className="shrink-0 font-semibold">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {hasMessages && active ? (
           <>

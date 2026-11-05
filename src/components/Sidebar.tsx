@@ -47,9 +47,10 @@ export default function Sidebar({
         </button>
 
         <nav className="mt-4 flex-1 overflow-y-auto" aria-label="Conversation history">
-          <h2 className="px-2 pb-2 text-sm font-semibold text-muted">History</h2>
+          <h2 className="px-2 text-sm font-semibold text-muted">History</h2>
+          <p className="px-2 pb-2 text-xs text-muted">Saved on this device only.</p>
           {conversations.length === 0 ? (
-            <p className="px-2 text-sm text-muted">Your conversations will show up here.</p>
+            <p className="px-2 text-sm text-muted">No saved conversations yet. Send a message to start one.</p>
           ) : (
             <ul className="flex flex-col gap-0.5">
               {conversations.map((c) => (
