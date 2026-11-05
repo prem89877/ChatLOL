@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Sidebar from "./Sidebar";
 import Composer from "./Composer";
 import MessageList from "./MessageList";
@@ -8,9 +9,48 @@ import SettingsDialog from "./SettingsDialog";
 import { MenuIcon, MoonIcon, SunIcon } from "./icons";
 import { useTheme } from "@/lib/useTheme";
 import { useChat } from "@/lib/useChat";
+import { createClient } from "@/lib/supabase/client";
 
-export default function ChatApp() {
-  const chat = useChat();
+type Props = { userId: string; userEmail: string };
+
+export default function ChatApp({ userId, userEmail }: Props) {
+  const router = useRouter();
+  const leavingRef = useRef(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  // Ends the local session and returns to the login page (once).
+  const leave = useCallback(
+    async (reason?: "expired") => {
+      if (leavingRef.current) return;
+      leavingRef.current = true;
+      try {
+        await createClient().auth.signOut({ scope: "local" });
+      } catch {
+        // Even if the network call fails, the browser session is cleared below by the redirect.
+      }
+      router.replace(reason ? `/login?reason=${reason}` : "/login");
+      router.refresh();
+    },
+    [router],
+  );
+
+  const onAuthExpired = useCallback(() => void leave("expired"), [leave]);
+
+  // If the session ends in another tab (or cannot be refreshed), leave this page too.
+  useEffect(() => {
+    const { data } = createClient().auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") void leave();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [leave]);
+
+  const logout = useCallback(async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    await leave();
+  }, [leave, loggingOut]);
+
+  const chat = useChat({ userId, onAuthExpired });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { theme, setTheme, toggle } = useTheme();
@@ -47,6 +87,10 @@ export default function ChatApp() {
           setSidebarOpen(false);
           setSettingsOpen(true);
         }}
+        historyLoading={chat.historyLoading}
+        userEmail={userEmail}
+        loggingOut={loggingOut}
+        onLogout={logout}
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -81,6 +125,26 @@ export default function ChatApp() {
             <button type="button" onClick={chat.dismissStorageError} className="shrink-0 font-semibold">
               Dismiss
             </button>
+          </div>
+        )}
+
+        {chat.legacyCount > 0 && (
+          <div
+            role="status"
+            className="mx-3 mb-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-panel px-3 py-2 text-sm"
+          >
+            <span>
+              Found {chat.legacyCount} older chat{chat.legacyCount === 1 ? "" : "s"} saved in this browser. Import{" "}
+              {chat.legacyCount === 1 ? "it" : "them"} to your account? The browser copy is kept.
+            </span>
+            <span className="flex shrink-0 gap-3 font-semibold">
+              <button type="button" onClick={chat.importLegacy} disabled={chat.importing} className="text-brand disabled:opacity-60">
+                {chat.importing ? "Importing…" : "Import"}
+              </button>
+              <button type="button" onClick={chat.skipLegacy} disabled={chat.importing} className="disabled:opacity-60">
+                Not now
+              </button>
+            </span>
           </div>
         )}
 
@@ -122,6 +186,9 @@ export default function ChatApp() {
           theme={theme}
           onTheme={setTheme}
           onClearChats={chat.clearAll}
+          userEmail={userEmail}
+          loggingOut={loggingOut}
+          onLogout={logout}
           onClose={() => setSettingsOpen(false)}
         />
       )}

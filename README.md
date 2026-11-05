@@ -40,7 +40,7 @@ Open http://localhost:3000 and send a message.
 
 ## Deploy on Vercel
 
-Add the same three variables in Project Settings > Environment Variables, then redeploy.
+Add all five variables (`AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`) in Project Settings > Environment Variables (Production, and Preview if you use previews), then **redeploy**. `NEXT_PUBLIC_*` values are baked in at build time, so an old deployment will not see new values. Without the two Supabase variables the app refuses to serve pages (503) instead of running unprotected.
 
 ## Scripts
 
@@ -48,32 +48,57 @@ Add the same three variables in Project Settings > Environment Variables, then r
 - `npm run build` – production build
 - `npm run start` – run production build
 - `npm run typecheck` – TypeScript check
+- `npm run lint` – ESLint
+- `npm test` – unit tests (Vitest)
 
-## Conversation history
+## Accounts and conversation history
 
-**What works now (no Supabase needed):** conversations are saved in your browser's localStorage, on this device only.
+Login, signup, password reset and logout use **Supabase Auth** (no custom auth, passwords are never handled by this app). Conversations and messages are stored in Supabase and protected by **Row Level Security**: every request runs as the signed-in user, so Postgres itself only returns/changes that user's rows. Changing an id in a request cannot reach another user's data. The AI route (`/api/chat`) and every page are also checked on the server (`src/middleware.ts` + the route), not only in the UI.
 
-- A conversation is created when you send your first message; its title is that message.
-- The assistant's reply is saved when it finishes (or the text received so far if you press Stop).
-- Reload the page and your chats are still in the sidebar, newest first. Click one to open it.
-- Delete asks for confirmation. "Clear all conversations" is in Settings.
-- If storage is full, blocked or damaged, a message appears and the chat keeps working. Damaged data is backed up in the browser, not overwritten.
-- Limits: history is not shared between browsers or devices, clearing browser data deletes it, and two tabs open at once can overwrite each other.
+### Setup (once)
 
-**Why not Supabase yet:** there is no login, so the app cannot tell visitors apart. Saving chats in Supabase without a user identity would mean public tables, or a server key that can read everyone's chats. Neither is safe, so Row Level Security is not weakened.
+1. **Project.** Use the Supabase project made for chatLOL (never the Blisscco one). Open it in the Supabase dashboard.
+2. **Keys.** Project Settings > API: copy the *Project URL* and the *anon* (or *publishable*) key into `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (local: `.env.local`; Vercel: Environment Variables). Do not copy the `service_role`/secret key anywhere.
+3. **Database.** SQL Editor > New query > paste the whole file `supabase/migrations/20261105000000_chat_history.sql` > Run. (Or with the CLI: `supabase link` then `supabase db push`.) It creates `conversations` and `messages` with RLS on, and can be re-run safely. Check: Table Editor shows both tables with "RLS enabled".
+4. **Auth URLs.** Authentication > URL Configuration:
+   - Site URL: `https://chatlol-tau.vercel.app`
+   - Redirect URLs (add all): `http://localhost:3000/auth/callback`, `https://chatlol-tau.vercel.app/auth/callback` (optional for Vercel previews: `https://*-<your-team>.vercel.app/auth/callback`).
+5. **Email sign-in.** Authentication > Sign In / Providers > Email: enabled. Keep **Confirm email** ON for real testing (the app handles both ON and OFF). Set the minimum password length to 8 to match the app. (Menu names can differ slightly between dashboard versions.)
+6. **Email sending.** Supabase's built-in email sender is heavily rate-limited and may only deliver to your own team members' addresses. To test with any email address, add your own SMTP provider in Authentication > SMTP Settings (Resend, Brevo, SendGrid, ...).
+7. **Optional, works across browsers.** The default email links need to be opened in the *same browser* that requested them. To make links work from any device, edit the templates in Authentication > Email Templates (note: `{{ .SiteURL }}` uses the Site URL above):
+   - Confirm signup link: `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=signup&next=/`
+   - Reset password link: `{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password`
+8. **Vercel.** Add the two Supabase variables, then Deployments > latest > Redeploy (or push to git).
 
-**What Supabase persistence needs later**
+### Manual test checklist
 
-1. Add authentication (for example Supabase Auth) so every chat belongs to a signed-in user.
-2. Create a NEW Supabase project for chatLOL. Never use the Blisscco project.
-3. Apply `supabase/migrations/20261105000000_chat_history.sql` (SQL Editor, or `supabase db push` with the Supabase CLI). It creates `conversations` and `messages` with Row Level Security and policies for signed-in owners only, none for anonymous users. It has not been applied or tested yet.
-4. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` (see `.env.example`) and install `@supabase/supabase-js`.
-5. Replace the localStorage functions in `src/lib/historyStore.ts` with Supabase calls made as the signed-in user. In the database, `messages.content` matches `text` in the app, and ids are UUIDs.
-6. Never use the `service_role` key in browser code.
+Use two different real email inboxes (User A, User B). Run `npm run dev` (http://localhost:3000) or test on the deployed site.
+
+1. Open `/` while logged out: you land on `/login`.
+2. Sign up as A on `/signup`: with Confirm email ON you see "Check your email"; open the link and you are logged in on `/`.
+3. Sign up again with A's email: "An account with this email already exists."
+4. Log out (sidebar bottom, or Settings). Log in with a wrong password: "Incorrect email or password." Log in correctly: back in the chat. While logged in, opening `/login` sends you to `/`.
+5. Send a message: the AI replies, the chat appears in the sidebar. Reload the page: you are still logged in and the chat is still there. Click it to reopen.
+6. Delete a chat, reload: it stays deleted.
+7. `/forgot-password`: enter A's email, open the email link, choose a new password at `/reset-password`, then log in with it. Opening an old/used reset link shows "invalid or expired".
+8. Log out, sign up/log in as B: B's sidebar is empty and shows none of A's chats.
+9. Isolation check (Supabase Dashboard > Table Editor): both users' rows exist with different `user_id` values. Optional hard test: in the browser console as B, query A's conversation id with the Supabase client; it returns no rows.
+10. Session expiry: in Authentication > Sessions/JWT settings use a short JWT expiry on a test project, or delete the session in the dashboard (Authentication > Users > user > sign out), then send a message: you are sent to `/login` with "Your session expired."
+11. Disconnect your network and send a message: you get an error message, the Stop/Retry controls work, and nothing stays stuck on "loading".
+
+### Conversations saved before accounts
+
+Earlier versions kept chats in this browser's localStorage. Those chats cannot be assigned to an owner automatically (there was no login then, and a shared device could hold chats of someone else). So they are never moved silently: after login the app shows "Found N older chats saved in this browser. Import them to your account?". **Import** copies them into the logged-in account; **Not now** hides the prompt. The browser copy is never deleted or changed, and signed-in chats are no longer written to localStorage. Only import on a device you trust: whoever clicks Import on that browser gets those chats.
+
+### Tests
+
+- `npm test`: unit tests for route protection rules, redirect safety, form validation, error messages, history mapping and the `/api/chat` login check.
+- RLS policies: `supabase/tests/rls_isolation.sql` proves user B cannot read, change, delete or add to user A's data and that anonymous users get nothing. It runs on a throwaway local PostgreSQL after `supabase/tests/00_local_stub.sql` (a stand-in for Supabase's `auth` schema) and the migration. It never touches a real project.
 
 ## Notes and limits
 
 - Replies stream in as they are generated. If a provider does not support streaming, the full reply appears at once.
-- Server limits: 12,000 characters per message, the latest 40 messages (max 60,000 characters) are sent as context, 20 requests per minute per IP.
-- The rate limit is in memory and best-effort (it resets when the server restarts and is per server instance on serverless hosting).
-- No authentication or payments.
+- Server limits: 12,000 characters per message, the latest 40 messages (max 60,000 characters) are sent as context, 20 requests per minute per user.
+- The sidebar loads the 100 most recently updated conversations.
+- The rate limit is per signed-in user, in memory and best-effort (it resets when the server restarts and is per server instance on serverless hosting).
+- Authentication is Supabase Auth (email + password). No payments.

@@ -9,7 +9,14 @@ import type { Message } from "./types";
  *   failure:  JSON { error: { message: string } } with a non-2xx status
  */
 
-export class ChatApiError extends Error {}
+export class ChatApiError extends Error {
+  /** HTTP status when the server answered (401 = not logged in / session expired). */
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+}
 
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
@@ -47,7 +54,7 @@ export async function requestChatReply(
     throw new ChatApiError("Could not reach the server. Check your connection and retry.");
   }
 
-  if (!res.ok) throw new ChatApiError(await readErrorMessage(res));
+  if (!res.ok) throw new ChatApiError(await readErrorMessage(res), res.status);
 
   let full = "";
   try {

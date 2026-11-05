@@ -52,3 +52,6 @@ export const CloseIcon = (p: SVGProps<SVGSVGElement>) => (
 export const StopIcon = (p: SVGProps<SVGSVGElement>) => (
   <Icon {...p}><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" /></Icon>
 );
+export const LogoutIcon = (p: SVGProps<SVGSVGElement>) => (
+  <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></Icon>
+);

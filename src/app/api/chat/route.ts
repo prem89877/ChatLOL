@@ -1,3 +1,5 @@
+import { createClient } from "../../../lib/supabase/server";
+import { getSupabaseEnv } from "../../../lib/supabase/env";
 import {
   MAX_CONTEXT_CHARS,
   MAX_CONTEXT_MESSAGES,
@@ -15,20 +17,20 @@ const UPSTREAM_CONNECT_TIMEOUT_MS = 30_000;
 const SYSTEM_PROMPT =
   "You are chatLOL, a helpful and friendly AI assistant. Reply in the same language the user writes in. Keep answers clear and concise.";
 
-/* ---------- small in-memory rate limit (per IP; best-effort, resets on cold start) ---------- */
+/* ---------- small in-memory rate limit (per user; best-effort, resets on cold start) ---------- */
 const RATE_LIMIT = 20; // requests
 const RATE_WINDOW_MS = 60_000;
 const hits = new Map<string, number[]>();
 
-function rateLimited(ip: string): boolean {
+function rateLimited(key: string): boolean {
   const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  const recent = (hits.get(key) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
   if (recent.length >= RATE_LIMIT) {
-    hits.set(ip, recent);
+    hits.set(key, recent);
     return true;
   }
   recent.push(now);
-  hits.set(ip, recent);
+  hits.set(key, recent);
   if (hits.size > 5000) hits.clear();
   return false;
 }
@@ -167,6 +169,19 @@ const STREAM_HEADERS = {
 
 /* ---------- route ---------- */
 export async function POST(req: Request): Promise<Response> {
+  // Only signed-in users may use the AI. Checked on the server with the Supabase Auth server
+  // (the middleware checks too; this is the second, route-level check).
+  if (!getSupabaseEnv()) return errorResponse(503, "Supabase is not configured on the server.");
+  let userId: string | null = null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    userId = data.user?.id ?? null;
+  } catch {
+    userId = null;
+  }
+  if (!userId) return errorResponse(401, "Your session expired. Please log in again.");
+
   const config = getConfig();
   if (!config) {
     return errorResponse(
@@ -175,8 +190,8 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (rateLimited(ip)) {
+  // Rate limit per signed-in user (more accurate than per IP now that there are accounts).
+  if (rateLimited(userId)) {
     return errorResponse(429, "Too many messages in a short time. Please wait a minute and retry.", {
       "Retry-After": "60",
     });

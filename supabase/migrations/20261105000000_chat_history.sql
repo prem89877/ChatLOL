@@ -1,7 +1,8 @@
--- chatLOL: conversation history (FOR LATER USE, requires Supabase Auth)
+-- chatLOL: conversation history (used by the app, requires Supabase Auth)
 --
--- NOT used by the app yet: chat history currently lives in the browser's localStorage.
--- This migration has NOT been applied or tested against a real Supabase project.
+-- Re-runnable: tables/indexes use "if not exists" and policies are dropped and recreated.
+-- Policy behaviour was tested on a local PostgreSQL with a Supabase-style auth.uid() stub
+-- (see supabase/tests). It has NOT been run on your real Supabase project until you apply it.
 --
 -- IMPORTANT
 --   * Apply this ONLY to a separate Supabase project created for chatLOL.
@@ -65,25 +66,32 @@ grant select, insert, update, delete on public.conversations to authenticated;
 grant select, insert, delete          on public.messages      to authenticated;
 
 -- conversations: owner only
+drop policy if exists conversations_select_own on public.conversations;
 create policy conversations_select_own on public.conversations
   for select to authenticated using (user_id = (select auth.uid()));
+drop policy if exists conversations_insert_own on public.conversations;
 create policy conversations_insert_own on public.conversations
   for insert to authenticated with check (user_id = (select auth.uid()));
+drop policy if exists conversations_update_own on public.conversations;
 create policy conversations_update_own on public.conversations
   for update to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+drop policy if exists conversations_delete_own on public.conversations;
 create policy conversations_delete_own on public.conversations
   for delete to authenticated using (user_id = (select auth.uid()));
 
 -- messages: only inside conversations the user owns
+drop policy if exists messages_select_own on public.messages;
 create policy messages_select_own on public.messages
   for select to authenticated using (
     exists (select 1 from public.conversations c
             where c.id = conversation_id and c.user_id = (select auth.uid())));
+drop policy if exists messages_insert_own on public.messages;
 create policy messages_insert_own on public.messages
   for insert to authenticated with check (
     exists (select 1 from public.conversations c
             where c.id = conversation_id and c.user_id = (select auth.uid())));
+drop policy if exists messages_delete_own on public.messages;
 create policy messages_delete_own on public.messages
   for delete to authenticated using (
     exists (select 1 from public.conversations c

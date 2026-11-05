@@ -1,5 +1,5 @@
 import type { Conversation } from "@/lib/types";
-import { PlusIcon, SettingsIcon, TrashIcon } from "./icons";
+import { LogoutIcon, PlusIcon, SettingsIcon, TrashIcon } from "./icons";
 
 type Props = {
   open: boolean;
@@ -10,6 +10,10 @@ type Props = {
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onOpenSettings: () => void;
+  historyLoading: boolean;
+  userEmail: string;
+  loggingOut: boolean;
+  onLogout: () => void;
 };
 
 export default function Sidebar({
@@ -21,6 +25,10 @@ export default function Sidebar({
   onSelect,
   onDelete,
   onOpenSettings,
+  historyLoading,
+  userEmail,
+  loggingOut,
+  onLogout,
 }: Props) {
   return (
     <>
@@ -48,8 +56,10 @@ export default function Sidebar({
 
         <nav className="mt-4 flex-1 overflow-y-auto" aria-label="Conversation history">
           <h2 className="px-2 text-sm font-semibold text-muted">History</h2>
-          <p className="px-2 pb-2 text-xs text-muted">Saved on this device only.</p>
-          {conversations.length === 0 ? (
+          <p className="px-2 pb-2 text-xs text-muted">Saved to your account.</p>
+          {historyLoading && conversations.length === 0 ? (
+            <p className="px-2 text-sm text-muted" role="status">Loading your conversations…</p>
+          ) : conversations.length === 0 ? (
             <p className="px-2 text-sm text-muted">No saved conversations yet. Send a message to start one.</p>
           ) : (
             <ul className="flex flex-col gap-0.5">
@@ -86,6 +96,24 @@ export default function Sidebar({
         >
           <SettingsIcon /> Settings
         </button>
+
+        <div className="mt-2 flex items-center gap-2 border-t border-line px-1 pt-3" aria-label="Account">
+          <div className="min-w-0 flex-1 px-2">
+            <p className="text-xs text-muted">Signed in as</p>
+            <p className="truncate text-sm font-semibold" title={userEmail}>{userEmail}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={loggingOut}
+            aria-label="Log out"
+            title="Log out"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg p-2 text-sm font-semibold hover:bg-panel disabled:opacity-60"
+          >
+            <LogoutIcon width={18} height={18} />
+            {loggingOut ? "…" : "Log out"}
+          </button>
+        </div>
       </aside>
     </>
   );

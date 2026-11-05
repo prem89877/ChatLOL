@@ -1,28 +1,30 @@
 import type { Conversation, Message } from "./types";
 
 /**
- * Conversation history storage (MVP): the browser's localStorage, this device only.
+ * Local (browser) history is LEGACY now.
  *
- * Why not Supabase yet: the app has no login, so there is no way to tell one visitor from
- * another. Saving chats in Supabase without a user identity would mean either public tables
- * or a server key that can read everyone's chats. Both are unsafe, so Supabase persistence
- * waits for authentication (see README, "Conversation history").
+ * Conversations of signed-in users are stored in Supabase (see conversationsDb.ts) and are
+ * protected by Row Level Security. Nothing is written to localStorage anymore, so chats of
+ * different accounts never mix on a shared device.
+ *
+ * This file only READS chats that were saved in this browser before accounts existed, so the user
+ * can choose to import them into their account. The old data is never deleted or modified.
  */
 
 const STORE_KEY = "chatlol:conversations";
-const CORRUPT_KEY = "chatlol:conversations:corrupt";
+const IMPORTED_KEY_PREFIX = "chatlol:legacy-imported:";
 
-export const SAVE_FAILED_MESSAGE =
-  "Could not save your history on this device (storage is full or blocked). Your chat still works, but it may be lost when you close or reload the page.";
-const LOAD_BLOCKED_MESSAGE =
-  "Saved history can't be read in this browser (storage is blocked). Your chat works, but it will not be kept after you close the page.";
-const LOAD_CORRUPT_MESSAGE =
-  "Saved history was damaged and could not be loaded. A backup copy was kept in this browser.";
-
-/** Unique id (UUID when the browser supports it). */
-export function newId(prefix: string): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  return `${prefix}-${uuid ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`}`;
+/** A random UUID (the database uses uuid ids). */
+export function newId(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c?.getRandomValues) c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 function isMessage(x: unknown): x is Message {
@@ -65,35 +67,32 @@ export function normalizeConversations(raw: unknown): Conversation[] {
   return out.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export type LoadResult = { conversations: Conversation[]; error: string | null };
-
-export function loadConversations(): LoadResult {
-  let raw: string | null;
+/** Chats saved in this browser before accounts existed. Read-only; returns [] if unreadable. */
+export function loadLegacyConversations(): Conversation[] {
   try {
-    raw = localStorage.getItem(STORE_KEY);
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return [];
+    return normalizeConversations(JSON.parse(raw)).filter((c) => c.messages.length > 0);
   } catch {
-    return { conversations: [], error: LOAD_BLOCKED_MESSAGE };
+    return [];
   }
-  if (!raw) return { conversations: [], error: null };
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    try {
-      localStorage.setItem(CORRUPT_KEY, raw); // keep the unreadable data instead of overwriting it
-    } catch {}
-    return { conversations: [], error: LOAD_CORRUPT_MESSAGE };
-  }
-  return { conversations: normalizeConversations(parsed), error: null };
 }
 
-/** Returns null on success, or an error message. Never throws. */
-export function saveConversations(conversations: Conversation[]): string | null {
+/** Legacy conversation ids this user already imported or chose to skip (per user, per browser). */
+export function getHandledLegacyIds(userId: string): Set<string> {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(conversations));
-    return null;
+    const raw = localStorage.getItem(IMPORTED_KEY_PREFIX + userId);
+    const list: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : []);
   } catch {
-    return SAVE_FAILED_MESSAGE;
+    return new Set();
   }
+}
+
+export function markLegacyIdsHandled(userId: string, ids: string[]): void {
+  try {
+    const all = getHandledLegacyIds(userId);
+    ids.forEach((id) => all.add(id));
+    localStorage.setItem(IMPORTED_KEY_PREFIX + userId, JSON.stringify([...all]));
+  } catch {}
 }

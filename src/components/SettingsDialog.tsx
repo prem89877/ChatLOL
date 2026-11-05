@@ -8,10 +8,13 @@ type Props = {
   theme: Theme;
   onTheme: (t: Theme) => void;
   onClearChats: () => void;
+  userEmail: string;
+  loggingOut: boolean;
+  onLogout: () => void;
   onClose: () => void;
 };
 
-export default function SettingsDialog({ theme, onTheme, onClearChats, onClose }: Props) {
+export default function SettingsDialog({ theme, onTheme, onClearChats, userEmail, loggingOut, onLogout, onClose }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -42,6 +45,19 @@ export default function SettingsDialog({ theme, onTheme, onClearChats, onClose }
           </button>
         </div>
 
+        <p className="mb-2 text-sm font-semibold text-muted">Account</p>
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-line px-3 py-2.5">
+          <span className="min-w-0 truncate text-sm" title={userEmail}>{userEmail}</span>
+          <button
+            type="button"
+            onClick={onLogout}
+            disabled={loggingOut}
+            className="shrink-0 text-sm font-semibold text-brand disabled:opacity-60"
+          >
+            {loggingOut ? "Logging out…" : "Log out"}
+          </button>
+        </div>
+
         <p className="mb-2 text-sm font-semibold text-muted">Theme</p>
         <div className="flex gap-2">
           <button type="button" onClick={() => onTheme("dark")} aria-pressed={theme === "dark"} className={opt(theme === "dark")}>
@@ -56,7 +72,7 @@ export default function SettingsDialog({ theme, onTheme, onClearChats, onClose }
         <button
           type="button"
           onClick={() => {
-            if (window.confirm("Delete all conversations on this device?")) {
+            if (window.confirm("Delete all conversations in your account? This cannot be undone.")) {
               onClearChats();
               onClose();
             }
