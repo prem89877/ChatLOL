@@ -1,61 +1,67 @@
 import type { Message } from "@/lib/types";
 
-const SUGGESTIONS = [
-  "Explain something complicated in simple words",
-  "Help me write a polite email",
-  "Give me a joke to start my day",
-  "Plan a 3-day trip on a small budget",
-];
-
 type Props = {
   messages: Message[];
-  onPick: (text: string) => void;
+  /** Assistant is responding to this conversation right now. */
+  loading: boolean;
+  /** Assistant text received so far while streaming. */
+  streamingText: string;
+  /** Error from the last request for this conversation, if any. */
+  error: string | null;
+  /** Retry is allowed (no other request is active). */
+  canRetry: boolean;
+  onRetry: () => void;
 };
 
-export default function MessageList({ messages, onPick }: Props) {
-  if (messages.length === 0) {
-    return (
-      <div className="m-auto w-full py-10">
-        <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">
-          Ask anything. Laugh a little.
-        </h1>
-        <p className="mt-3 max-w-prose text-muted">
-          Type below, or start with one of these.
-        </p>
-        <div className="mt-8 grid gap-3 sm:grid-cols-2">
-          {SUGGESTIONS.map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onPick(s)}
-              className="rounded-xl border border-line bg-panel px-4 py-3 text-left hover:border-brand"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
+export default function MessageList({ messages, loading, streamingText, error, canRetry, onRetry }: Props) {
+  const last = messages[messages.length - 1];
+  const unanswered = !loading && last?.role === "user";
 
   return (
-    <ul className="flex flex-col gap-4">
+    <ul className="flex flex-col gap-6">
       {messages.map((m) => (
-        <li
-          key={m.id}
-          className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
-        >
+        <li key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
           <div
-            className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 leading-relaxed ${
-              m.role === "user"
-                ? "bg-brand text-white"
-                : "border border-line bg-panel"
+            className={`whitespace-pre-wrap break-words leading-7 ${
+              m.role === "user" ? "max-w-[85%] rounded-3xl bg-panel px-4 py-2.5" : "max-w-full"
             }`}
           >
             {m.text}
           </div>
         </li>
       ))}
+
+      {loading && streamingText && (
+        <li className="flex justify-start">
+          <div className="max-w-full whitespace-pre-wrap break-words leading-7">{streamingText}</div>
+        </li>
+      )}
+
+      {loading && !streamingText && (
+        <li role="status" aria-label="Assistant is responding" className="flex gap-1.5 py-2">
+          {[0, 150, 300].map((delay) => (
+            <span
+              key={delay}
+              className="h-2 w-2 rounded-full bg-muted motion-safe:animate-pulse"
+              style={{ animationDelay: `${delay}ms` }}
+            />
+          ))}
+        </li>
+      )}
+
+      {unanswered && (
+        <li role="alert" className="flex flex-wrap items-center gap-3 text-sm text-muted">
+          <span>{error ?? "This message has no reply yet."}</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={!canRetry}
+            className="rounded-full border border-line bg-panel px-3 py-1 font-semibold text-ink hover:border-brand disabled:opacity-40"
+          >
+            Retry
+          </button>
+        </li>
+      )}
     </ul>
   );
 }

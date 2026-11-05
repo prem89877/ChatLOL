@@ -2,23 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light theme tokens (RGB channels so Tailwind opacity works) */
+:root {
+  --canvas: 247 246 251;
+  --panel: 255 255 255;
+  --side: 239 237 247;
+  --line: 224 222 238;
+  --ink: 22 21 43;
+  --muted: 104 103 131;
+  --brand: 91 75 255;
+  --onbrand: 255 255 255;
+}
+
+/* Dark theme is the default (html has class "dark") */
+.dark {
+  --canvas: 19 19 24;
+  --panel: 30 30 39;
+  --side: 24 24 31;
+  --line: 46 46 58;
+  --ink: 236 235 245;
+  --muted: 150 149 170;
+  --brand: 139 125 255;
+  --onbrand: 20 18 40;
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  @apply bg-paper text-ink antialiased;
+  @apply bg-canvas text-ink antialiased;
 }
 
 :focus-visible {
-  outline: 2px solid #5b4bff;
+  outline: 2px solid rgb(var(--brand));
   outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   * {
-    animation: none !important;
     transition: none !important;
   }
 }
