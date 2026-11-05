@@ -1,4 +1,7 @@
+import { Fragment } from "react";
 import type { Message } from "@/lib/types";
+import type { SponsoredAd as Ad } from "@/lib/ads/types";
+import SponsoredAd from "./SponsoredAd";
 
 type Props = {
   messages: Message[];
@@ -11,25 +14,38 @@ type Props = {
   /** Retry is allowed (no other request is active). */
   canRetry: boolean;
   onRetry: () => void;
+  /** Sponsored ads keyed by the id of the user question they answer. Shown after the AI reply, never inside it. */
+  ads?: Record<string, Ad>;
 };
 
-export default function MessageList({ messages, loading, streamingText, error, canRetry, onRetry }: Props) {
+export default function MessageList({ messages, loading, streamingText, error, canRetry, onRetry, ads }: Props) {
   const last = messages[messages.length - 1];
   const unanswered = !loading && last?.role === "user";
 
   return (
     <ul className="flex flex-col gap-6">
-      {messages.map((m) => (
-        <li key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-          <div
-            className={`whitespace-pre-wrap break-words leading-7 ${
-              m.role === "user" ? "max-w-[85%] rounded-3xl bg-panel px-4 py-2.5" : "max-w-full"
-            }`}
-          >
-            {m.text}
-          </div>
-        </li>
-      ))}
+      {messages.map((m, i) => {
+        const prev = messages[i - 1];
+        const ad = m.role === "assistant" && prev?.role === "user" ? ads?.[prev.id] : undefined;
+        return (
+          <Fragment key={m.id}>
+            <li className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+              <div
+                className={`whitespace-pre-wrap break-words leading-7 ${
+                  m.role === "user" ? "max-w-[85%] rounded-3xl bg-panel px-4 py-2.5" : "max-w-full"
+                }`}
+              >
+                {m.text}
+              </div>
+            </li>
+            {ad && (
+              <li className="flex justify-start">
+                <SponsoredAd ad={ad} />
+              </li>
+            )}
+          </Fragment>
+        );
+      })}
 
       {loading && streamingText && (
         <li className="flex justify-start">

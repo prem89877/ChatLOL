@@ -12,6 +12,8 @@ import {
   insertMessageRow,
 } from "./conversationsDb";
 import { getHandledLegacyIds, loadLegacyConversations, markLegacyIdsHandled, newId } from "./historyStore";
+import { fetchSponsoredAd } from "./adsApi";
+import type { SponsoredAd } from "./ads/types";
 import type { Conversation, Message } from "./types";
 
 const SYNC_FAILED_MESSAGE =
@@ -33,6 +35,7 @@ export function useChat({ userId, onAuthExpired }: Options) {
   const [storageError, setStorageError] = useState<string | null>(null);
   const [legacy, setLegacy] = useState<Conversation[]>([]); // pre-account chats found in this browser
   const [importing, setImporting] = useState(false);
+  const [ads, setAds] = useState<Record<string, SponsoredAd>>({}); // sponsored ads by user-question id (session only, never saved)
 
   // Refs guard against double submits and hold the cancel handle.
   const busyRef = useRef(false);
@@ -40,6 +43,7 @@ export function useChat({ userId, onAuthExpired }: Options) {
   const draftRef = useRef("");
   const deletedRef = useRef<Set<string>>(new Set()); // never save into conversations the user deleted
   const queueRef = useRef<Promise<void>>(Promise.resolve()); // database writes run one after another
+  const shownAdIdsRef = useRef<string[]>([]); // ads already shown this session, so the next question gets a different one
   const expiredRef = useRef(onAuthExpired);
   expiredRef.current = onAuthExpired;
 
@@ -138,6 +142,15 @@ export function useChat({ userId, onAuthExpired }: Options) {
     }
   }, [persist]);
 
+  // Fire-and-forget ad lookup for one question. Runs in parallel with the AI reply and can never block or fail it.
+  const loadAd = useCallback((question: Message) => {
+    void fetchSponsoredAd(question.text, shownAdIdsRef.current.slice(-20)).then((ad) => {
+      if (!ad || shownAdIdsRef.current.includes(ad.id)) return;
+      shownAdIdsRef.current = [...shownAdIdsRef.current, ad.id].slice(-20);
+      setAds((prev) => ({ ...prev, [question.id]: ad }));
+    });
+  }, []);
+
   // Returns true if the message was accepted (so the composer can clear itself).
   const sendMessage = useCallback(
     (text: string): boolean => {
@@ -159,6 +172,7 @@ export function useChat({ userId, onAuthExpired }: Options) {
           if (!deletedRef.current.has(existing.id)) await insertMessageRow(existing.id, userMessage);
         });
         void requestReply(existing.id, history);
+        loadAd(userMessage);
       } else {
         const id = newId();
         const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
@@ -170,10 +184,11 @@ export function useChat({ userId, onAuthExpired }: Options) {
           await insertMessageRow(id, userMessage);
         });
         void requestReply(id, [userMessage]);
+        loadAd(userMessage);
       }
       return true;
     },
-    [conversations, activeId, requestReply, persist],
+    [conversations, activeId, requestReply, persist, loadAd],
   );
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
@@ -255,6 +270,7 @@ export function useChat({ userId, onAuthExpired }: Options) {
     skipLegacy,
     storageError,
     dismissStorageError: () => setStorageError(null),
+    ads,
     active,
     activeId,
     busy: loadingId !== null,

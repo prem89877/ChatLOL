@@ -95,6 +95,56 @@ Earlier versions kept chats in this browser's localStorage. Those chats cannot b
 - `npm test`: unit tests for route protection rules, redirect safety, form validation, error messages, history mapping and the `/api/chat` login check.
 - RLS policies: `supabase/tests/rls_isolation.sql` proves user B cannot read, change, delete or add to user A's data and that anonymous users get nothing. It runs on a throwaway local PostgreSQL after `supabase/tests/00_local_stub.sql` (a stand-in for Supabase's `auth` schema) and the migration. It never touches a real project.
 
+## Sponsored ads from Blisscco (controlled pilot)
+
+Off by default. When `BLISSCCO_ADS_ENABLED=true`, each question you send also triggers one separate, non-blocking ad lookup. The ad appears in a labelled "Sponsored" box **after** the AI answer. If anything about the ad fails (timeout, 401, 503, no ad, bad data) nothing is shown and the chat is unaffected.
+
+**Flow:** question -> `POST /api/ads` (ChatLOL server, login required) -> topic slugs derived from the question (`src/lib/ads/topic.ts`) -> `POST {BLISSCCO_API_BASE_URL}/api/v1/ads/match` -> sanitized ad -> shown under the answer -> `POST /api/ads/impression` (ChatLOL server) -> `POST /api/v1/ads/impression` at Blisscco.
+
+**Sent to Blisscco:** topic slugs (max 3), ids of ads already shown, a random idempotency key, and the publisher key in the `Authorization` header. **Never sent:** question text, conversation, user id, email, session. Sensitive subjects (health, politics, religion, etc.) send no request at all.
+
+**Impression meaning:** an impression is reported when the sponsored box is rendered. It is not a viewability measurement. Blisscco counts only the first report per ad serve; repeats answer `duplicate`.
+
+### Automated tests (mocked, no network, no real key)
+
+```
+npm run typecheck
+npm test
+npm run lint
+```
+New files: `tests/ads-topic.test.ts`, `ads-blisscco.test.ts`, `ads-handlers.test.ts`, `ads-client.test.ts` (shared fake in `ads-test-helpers.ts`). Scenario map: 1 relevant ad, 2 gaming question asks for gaming (not food), 3 no-fill, 4 Blisscco down/timeout, 5 invalid key, 6 duplicate impression, 7 several questions with `exclude_ad_ids`. These use a fake Blisscco. Which ad Blisscco itself selects is tested in the Blisscco repo (`tests/ads/*`), not here.
+
+### Manual real-world test (all steps PENDING until you do them)
+
+Use only a TEST advertiser, TEST campaign and your own test ChatLOL account. Blisscco counts spend when an ad is handed out, so every fill spends from the test campaign budget.
+
+**Blisscco setup (needs the Blisscco owner; do not touch Production data):**
+1. Test advertiser account with one campaign: category `gaming`, status Active, started, one APPROVED creative with an https destination you control, very small budget and daily cap, no real payment method.
+2. A second test campaign in category `food`, same way (for test M3).
+3. Test publisher account approved by hand, property approved, one API key created on the Publisher page (shown once). Server side Blisscco needs `AD_TRACKING_SECRET` set, otherwise no tracking token is issued.
+4. Blisscco gives you the base URL. There is no published staging host.
+
+**ChatLOL setup (Vercel Preview or local, never Production for the first run):**
+`BLISSCCO_ADS_ENABLED=true`, `BLISSCCO_API_BASE_URL`, `BLISSCCO_PUBLISHER_API_KEY`. Redeploy after changing env vars on Vercel. Log in with the test account.
+
+| # | Steps | Expected |
+|---|-------|----------|
+| M1 | Ask: "Suggest some good gaming laptops." | AI answer first, then a "Sponsored" box with the gaming test ad. No ad text inside the answer. |
+| M2 | Open browser dev tools > Network, repeat M1 | `/api/ads` and `/api/ads/impression` responses contain no key. Request body of `/api/ads` has only your question and ids. |
+| M3 | Ask: "Give me an easy dinner recipe." | Food test ad, not the gaming one. |
+| M4 | Ask: "Hello, how are you?" | No sponsored box, no error, normal answer. |
+| M5 | Ask about a health topic | No sponsored box. |
+| M6 | Ask 3 gaming questions in one chat | Never the same ad twice in a row while another eligible ad exists; chat answers unaffected. |
+| M7 | Reload the page and open the chat | Old answers load; sponsored boxes are not saved (by design). |
+| M8 | Click the ad link | Opens your https test page in a new tab. (Click tracking is NOT implemented in ChatLOL.) |
+| M9 | Set a wrong `BLISSCCO_PUBLISHER_API_KEY`, redeploy, ask a gaming question | No ad, no error, chat works. Restore the correct key afterwards. |
+| M10 | Set `BLISSCCO_API_BASE_URL` to an unreachable host, ask | No ad appears within about 3 seconds extra, chat works. Restore afterwards. |
+| M11 | Check the Blisscco test publisher/advertiser pages (and only those) | Serves and impressions for your test campaign increased by the number of ads you saw. Impressions must not exceed serves; repeating M1 on the same ad must not double count. |
+
+**Cleanup:** pause or delete the test campaigns, revoke the test publisher key on the Publisher page, remove the three env vars (or set `BLISSCCO_ADS_ENABLED=false`) and redeploy, delete test conversations in ChatLOL.
+
+**Known blockers / unverified:** no live run has been done; the UI components (`SponsoredAd`, `MessageList`) have no render test and were only syntax-checked outside a real Next build; click tracking and viewability are not implemented; topic matching is keyword based, so loosely related questions may get no ad; Blisscco publishes no staging host; the Blisscco `AD_TRACKING_SECRET`, base URL and approved test data must exist before M1 can pass.
+
 ## Notes and limits
 
 - Replies stream in as they are generated. If a provider does not support streaming, the full reply appears at once.

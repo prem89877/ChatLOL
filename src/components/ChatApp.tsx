@@ -159,6 +159,7 @@ export default function ChatApp({ userId, userEmail }: Props) {
                   error={chat.activeError}
                   canRetry={!chat.busy}
                   onRetry={chat.retry}
+                  ads={chat.ads}
                 />
                 <div ref={endRef} />
               </div>
